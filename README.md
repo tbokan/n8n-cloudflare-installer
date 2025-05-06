@@ -14,7 +14,7 @@ A beginner-friendly one-line installer to set up n8n with Docker and Cloudflare 
 Paste this into your VPS terminal (Ubuntu 22.04 recommended):
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/YOUR_USERNAME/n8n-cloudflare-installer/main/install.sh)
+bash <(curl -s https://raw.githubusercontent.com/tbokan/n8n-cloudflare-installer/main/install.sh)
 ```
 
 > 🔐 Change `YOUR_USERNAME` to your actual GitHub username
