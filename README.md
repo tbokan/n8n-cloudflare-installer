@@ -42,4 +42,4 @@ bash <(curl -s https://raw.githubusercontent.com/tbokan/n8n-cloudflare-installer
 Default password is set to `strongpassword123`. Please change it in `docker-compose.yml`.
 
 ## 📬 Support
-Need help? [Open an issue](https://github.com/YOUR_USERNAME/n8n-cloudflare-installer/issues) or message Tadej.
+Need help? [Open an issue](https://github.com/tbokan/n8n-cloudflare-installer/issues) or message Tadej.
