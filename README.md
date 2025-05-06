@@ -36,6 +36,15 @@ N8N_ADMIN_PASSWORD=YourStrongPassword bash <(curl -s https://raw.githubuserconte
 - `/home/n8nuser/n8n/n8n_data`: Persistent storage for n8n
 - `/home/n8nuser/n8n-backups`: Daily backups (7-day retention)
 
+## 🔧 After Installation
+1. Reboot the server
+2. Run:
+```bash
+sudo -i -u n8nuser
+cd ~/n8n
+docker-compose up -d
+```
+
 ## 🔧 Next Steps
 1. Login to Cloudflare via browser (link appears in terminal)
 2. Create a tunnel and DNS route
