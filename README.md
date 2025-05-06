@@ -32,9 +32,9 @@ N8N_ADMIN_PASSWORD=YourStrongPassword bash <(curl -s https://raw.githubuserconte
 - A domain name managed through [Cloudflare](https://dash.cloudflare.com/)
 
 ## 📁 Files Created
-- `/home/n8n/n8n/docker-compose.yml`: n8n Docker config
-- `/home/n8n/n8n_data`: Persistent storage for n8n
-- `/home/n8n/n8n-backups`: Daily backups (7-day retention)
+- `/home/n8nuser/n8n/docker-compose.yml`: n8n Docker config
+- `/home/n8nuser/n8n/n8n_data`: Persistent storage for n8n
+- `/home/n8nuser/n8n-backups`: Daily backups (7-day retention)
 
 ## 🔧 Next Steps
 1. Login to Cloudflare via browser (link appears in terminal)
@@ -48,7 +48,7 @@ N8N_ADMIN_PASSWORD=YourStrongPassword bash <(curl -s https://raw.githubuserconte
 - **Auto-update**: Weekly at 4 AM every Sunday
 
 ## 🛡️ Security Enhancements
-- Docker containers run under non-root `n8n` user
+- Docker containers run under non-root `n8nuser`
 - Basic auth is required for all access
 - UFW blocks all ports except SSH, HTTP, and HTTPS
 - Existing installations are detected to prevent overwriting
