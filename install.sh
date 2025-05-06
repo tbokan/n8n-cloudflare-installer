@@ -49,6 +49,11 @@ else
   echo "✅ Created non-root user: $USERNAME"
 fi
 
+# Add user to docker group for Docker access
+usermod -aG docker $USERNAME
+
+echo "ℹ️ Added $USERNAME to the docker group. A reboot is required before Docker commands will work."
+
 # ─────────────────────────────────────────────────────────────
 # Define project directories
 # ─────────────────────────────────────────────────────────────
@@ -97,46 +102,9 @@ EOF
 chown $USERNAME:$USERNAME "$INSTALL_DIR/docker-compose.yml"
 
 # ─────────────────────────────────────────────────────────────
-# Start n8n service
+# Notify to reboot
 # ─────────────────────────────────────────────────────────────
-su - $USERNAME -c "cd $INSTALL_DIR && docker-compose up -d"
-
-# Check if container is running
-sleep 5
-if ! docker ps | grep -q n8n; then
-  echo "❌ n8n container failed to start."
-  exit 1
-fi
-
-# ─────────────────────────────────────────────────────────────
-# Install Cloudflare Tunnel
-# ─────────────────────────────────────────────────────────────
-echo "🔐 Installing cloudflared..."
-curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-chmod +x /usr/local/bin/cloudflared
-
-cloudflared tunnel login || { echo "❌ Cloudflare login failed."; exit 1; }
-
-# ─────────────────────────────────────────────────────────────
-# Setup backups and remote upload placeholder
-# ─────────────────────────────────────────────────────────────
-echo "💾 Setting up backup and cleanup cron jobs..."
-(crontab -l -u $USERNAME 2>/dev/null; echo "0 2 * * * tar -czf $BACKUP_DIR/n8n-\$(date +\%F).tar.gz -C $INSTALL_DIR n8n_data && echo Backup created") | crontab -u $USERNAME -
-(crontab -l -u $USERNAME 2>/dev/null; echo "0 3 * * * find $BACKUP_DIR -type f -mtime +7 -delete") | crontab -u $USERNAME -
-
-# Optional placeholder for remote backup upload:
-# echo "🔁 Uploading backup to remote (not implemented)"
-
-# ─────────────────────────────────────────────────────────────
-# Schedule weekly auto-update
-# ─────────────────────────────────────────────────────────────
-(crontab -l -u $USERNAME 2>/dev/null; echo "0 4 * * 0 cd $INSTALL_DIR && docker-compose pull && docker-compose down && docker-compose up -d") | crontab -u $USERNAME -
-
-# ─────────────────────────────────────────────────────────────
-# Final output
-# ─────────────────────────────────────────────────────────────
-echo "✅ n8n setup complete and secured."
-echo "📍 Access via Cloudflare Tunnel or use reverse proxy with TLS."
-echo "🔐 Admin login: admin / your custom password"
-echo "🧱 Firewall is active and only allows SSH, HTTP, HTTPS."
-echo "💾 Backups stored in $BACKUP_DIR, updated daily."
+echo "✅ Setup complete. Please reboot your server before continuing to allow Docker permissions to take effect."
+echo "After reboot, switch to the n8n user and run:"
+echo "  sudo -i -u $USERNAME"
+echo "  cd ~/n8n && docker-compose up -d"
