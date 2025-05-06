@@ -1,137 +1,142 @@
 #!/bin/bash
 
-# Exit on any error and show commands being run
-set -ex
+set -euo pipefail
 
+# ─────────────────────────────────────────────────────────────
 # Check if running as root
-if [ "$(id -u)" -ne 0 ]; then
-    echo "❌ This script must be run as root"
-    exit 1
+# ─────────────────────────────────────────────────────────────
+if [[ $EUID -ne 0 ]]; then
+  echo "❌ This script must be run as root. Exiting."
+  exit 1
 fi
 
-# Validate system requirements
-if [ ! -f /etc/os-release ]; then
-    echo "❌ Cannot determine OS distribution"
-    exit 1
+# ─────────────────────────────────────────────────────────────
+# Check for supported OS (Ubuntu 22.04 preferred)
+# ─────────────────────────────────────────────────────────────
+os_version=$(lsb_release -rs)
+if ! lsb_release -is | grep -qi ubuntu; then
+  echo "❌ This script supports only Ubuntu. Detected: $(lsb_release -is)"
+  exit 1
 fi
 
-# Load OS info
-. /etc/os-release
-
-# Check for Ubuntu/Debian
-if [ "$ID" != "ubuntu" ] && [ "$ID" != "debian" ]; then
-    echo "❌ This script only supports Ubuntu/Debian"
-    exit 1
+if [[ "$os_version" != "22.04" ]]; then
+  echo "⚠️ Warning: This script was tested on Ubuntu 22.04. Detected version: $os_version"
 fi
 
-# Check for minimum Ubuntu version if Ubuntu
-if [ "$ID" = "ubuntu" ] && [ "$VERSION_ID" != "22.04" ]; then
-    echo "⚠️  This script is tested on Ubuntu 22.04, you're using $VERSION_ID"
-    read -p "Continue anyway? [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+# ─────────────────────────────────────────────────────────────
+# Prompt for n8n admin password or allow environment variable
+# ─────────────────────────────────────────────────────────────
+if [ -z "${N8N_ADMIN_PASSWORD:-}" ]; then
+  read -s -p "🔐 Enter a strong password for n8n admin user (min 8 characters): " N8N_ADMIN_PASSWORD
+  echo
 fi
 
-# Prompt for n8n credentials
-echo "🔐 n8n Authentication Setup"
-read -p "Enter username [admin]: " N8N_USER
-N8N_USER=${N8N_USER:-admin}
-
-while true; do
-    read -s -p "Enter password (min 12 chars): " N8N_PASS
-    echo
-    if [ ${#N8N_PASS} -ge 12 ]; then
-        break
-    else
-        echo "Password must be at least 12 characters"
-    fi
-done
-
-# Create dedicated user for n8n
-if ! id n8nuser &>/dev/null; then
-    useradd -m -s /bin/bash -G docker n8nuser
-    echo "👤 Created n8nuser"
+if [ ${#N8N_ADMIN_PASSWORD} -lt 8 ]; then
+  echo "❌ Password too short. Must be at least 8 characters."
+  exit 1
 fi
 
-# Print info
-echo "🛠️ Updating system and installing dependencies..."
-apt-get update && apt-get upgrade -y
-apt-get install -y docker.io docker-compose curl unzip nano
+# ─────────────────────────────────────────────────────────────
+# Create dedicated user
+# ─────────────────────────────────────────────────────────────
+USERNAME=n8nuser
+HOME_DIR=/home/$USERNAME
 
-# Enable and start Docker
-systemctl start docker
-systemctl enable docker
+if id "$USERNAME" &>/dev/null; then
+  echo "👤 User $USERNAME already exists."
+else
+  useradd -m -s /bin/bash $USERNAME
+  echo "✅ Created non-root user: $USERNAME"
+fi
 
-# Create n8n folder with proper permissions
-mkdir -p /home/n8nuser/n8n
-chown n8nuser:n8nuser /home/n8nuser/n8n
-cd /home/n8nuser/n8n
+# ─────────────────────────────────────────────────────────────
+# Define project directories
+# ─────────────────────────────────────────────────────────────
+INSTALL_DIR=$HOME_DIR/n8n
+BACKUP_DIR=$HOME_DIR/n8n-backups
 
-# Create docker-compose.yml
-cat <<EOF > docker-compose.yml
+mkdir -p "$INSTALL_DIR/n8n_data" "$BACKUP_DIR"
+chown -R $USERNAME:$USERNAME "$INSTALL_DIR" "$BACKUP_DIR"
+
+# ─────────────────────────────────────────────────────────────
+# Install dependencies
+# ─────────────────────────────────────────────────────────────
+echo "🛠️ Installing Docker and utilities..."
+apt update && apt upgrade -y
+apt install -y docker.io docker-compose curl ufw unzip nano
+systemctl enable --now docker
+
+# ─────────────────────────────────────────────────────────────
+# Configure firewall (UFW)
+# ─────────────────────────────────────────────────────────────
+echo "🧱 Configuring UFW firewall..."
+ufw allow OpenSSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw --force enable
+
+# ─────────────────────────────────────────────────────────────
+# Create Docker Compose file
+# ─────────────────────────────────────────────────────────────
+cat <<EOF > "$INSTALL_DIR/docker-compose.yml"
 version: "3"
 services:
   n8n:
     image: n8nio/n8n
-    restart: unless-stopped
+    restart: always
     ports:
       - "127.0.0.1:5678:5678"
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_USER}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASS}
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=$N8N_ADMIN_PASSWORD
     volumes:
       - ./n8n_data:/home/node/.n8n
 EOF
 
-# Start n8n container as n8nuser
-echo "🚀 Starting n8n..."
-sudo -u n8nuser docker-compose up -d
+chown $USERNAME:$USERNAME "$INSTALL_DIR/docker-compose.yml"
 
-# Check if n8n is running
-if ! sudo -u n8nuser docker-compose ps | grep -q "Up"; then
-    echo "❌ Failed to start n8n container"
-    exit 1
+# ─────────────────────────────────────────────────────────────
+# Start n8n service
+# ─────────────────────────────────────────────────────────────
+su - $USERNAME -c "cd $INSTALL_DIR && docker-compose up -d"
+
+# Check if container is running
+sleep 5
+if ! docker ps | grep -q n8n; then
+  echo "❌ n8n container failed to start."
+  exit 1
 fi
 
-# Install cloudflared (Cloudflare Tunnel)
-echo "🔐 Installing Cloudflare Tunnel..."
+# ─────────────────────────────────────────────────────────────
+# Install Cloudflare Tunnel
+# ─────────────────────────────────────────────────────────────
+echo "🔐 Installing cloudflared..."
 curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
 chmod +x /usr/local/bin/cloudflared
 
-# Cloudflare login
-echo "🌐 Please complete Cloudflare login in your browser..."
-cloudflared tunnel login
+cloudflared tunnel login || { echo "❌ Cloudflare login failed."; exit 1; }
 
-# Setup daily automatic backup of n8n_data
-mkdir -p /home/n8nuser/n8n-backups
-chown n8nuser:n8nuser /home/n8nuser/n8n-backups
+# ─────────────────────────────────────────────────────────────
+# Setup backups and remote upload placeholder
+# ─────────────────────────────────────────────────────────────
+echo "💾 Setting up backup and cleanup cron jobs..."
+(crontab -l -u $USERNAME 2>/dev/null; echo "0 2 * * * tar -czf $BACKUP_DIR/n8n-\$(date +\%F).tar.gz -C $INSTALL_DIR n8n_data && echo Backup created") | crontab -u $USERNAME -
+(crontab -l -u $USERNAME 2>/dev/null; echo "0 3 * * * find $BACKUP_DIR -type f -mtime +7 -delete") | crontab -u $USERNAME -
 
-# Add backup cron job as n8nuser
-(sudo -u n8nuser crontab -l 2>/dev/null; echo "0 2 * * * tar -czf /home/n8nuser/n8n-backups/n8n-\$(date +\\%F).tar.gz -C /home/n8nuser/n8n n8n_data") | sudo -u n8nuser crontab -
-(sudo -u n8nuser crontab -l 2>/dev/null; echo "0 3 * * * find /home/n8nuser/n8n-backups/ -type f -mtime +7 -delete") | sudo -u n8nuser crontab -
+# Optional placeholder for remote backup upload:
+# echo "🔁 Uploading backup to remote (not implemented)"
 
-# Setup weekly auto-update for n8n
-(sudo -u n8nuser crontab -l 2>/dev/null; echo "0 4 * * 0 cd /home/n8nuser/n8n && docker-compose pull && docker-compose down && docker-compose up -d") | sudo -u n8nuser crontab -
+# ─────────────────────────────────────────────────────────────
+# Schedule weekly auto-update
+# ─────────────────────────────────────────────────────────────
+(crontab -l -u $USERNAME 2>/dev/null; echo "0 4 * * 0 cd $INSTALL_DIR && docker-compose pull && docker-compose down && docker-compose up -d") | crontab -u $USERNAME -
 
-# Setup basic firewall
-if command -v ufw &>/dev/null; then
-    ufw allow 22/tcp   # SSH
-    ufw allow 80/tcp   # HTTP
-    ufw allow 443/tcp  # HTTPS
-    ufw --force enable
-    echo "🔥 Configured firewall (UFW)"
-fi
-
-# Final message
-echo "✅ Installation completed successfully!"
-echo "➡️ n8n is running at: http://localhost:5678 (only accessible locally)"
-echo "➡️ Next steps:"
-echo "   1. Create a Cloudflare Tunnel with: cloudflared tunnel create <tunnel-name>"
-echo "   2. Create config.yml in ~/.cloudflared/"
-echo "   3. Run the tunnel with: cloudflared tunnel run <tunnel-name>"
-echo "   4. Set up DNS to point to your tunnel"
-echo "ℹ️ Daily backups are stored in /home/n8nuser/n8n-backups"
-echo "ℹ️ n8n will auto-update weekly on Sundays at 4 AM"
+# ─────────────────────────────────────────────────────────────
+# Final output
+# ─────────────────────────────────────────────────────────────
+echo "✅ n8n setup complete and secured."
+echo "📍 Access via Cloudflare Tunnel or use reverse proxy with TLS."
+echo "🔐 Admin login: admin / your custom password"
+echo "🧱 Firewall is active and only allows SSH, HTTP, HTTPS."
+echo "💾 Backups stored in $BACKUP_DIR, updated daily."
